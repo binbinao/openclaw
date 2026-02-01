@@ -1,20 +1,35 @@
-node_modules
-**/node_modules/
+# Local documentation directories
+_mydocs/
+_docs/
+
+# Archive files
+*.tgz
+*.tar.gz
+*.zip
+
+# Node.js
+node_modules/
+.npm
+npm-debug.log*
+
+# Environment variables
 .env
-docker-compose.extra.yml
-dist
-*.bun-build
-pnpm-lock.yaml
-bun.lock
-bun.lockb
-coverage
-.pnpm-store
-.worktrees/
+.env.local
+.env*.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
 .DS_Store
-**/.DS_Store
-ui/src/ui/__screenshots__/
-ui/playwright-report/
-ui/test-results/
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
 
 # Bun build artifacts
 *.bun-build
