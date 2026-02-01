@@ -5,6 +5,8 @@ export {
 export { VENICE_DEFAULT_MODEL_ID, VENICE_DEFAULT_MODEL_REF } from "../agents/venice-models.js";
 export {
   applyAuthProfileConfig,
+  applyHunyuanConfig,
+  applyHunyuanProviderConfig,
   applyKimiCodeConfig,
   applyKimiCodeProviderConfig,
   applyMoonshotConfig,
@@ -38,6 +40,7 @@ export {
   OPENROUTER_DEFAULT_MODEL_REF,
   setAnthropicApiKey,
   setGeminiApiKey,
+  setHunyuanApiKey,
   setKimiCodingApiKey,
   setMinimaxApiKey,
   setMoonshotApiKey,
@@ -56,8 +59,12 @@ export {
 export {
   buildMinimaxApiModelDefinition,
   buildMinimaxModelDefinition,
+  buildHunyuanModelDefinition,
   buildMoonshotModelDefinition,
   DEFAULT_MINIMAX_BASE_URL,
+  HUNYUAN_BASE_URL,
+  HUNYUAN_DEFAULT_MODEL_ID,
+  HUNYUAN_DEFAULT_MODEL_REF,
   KIMI_CODING_MODEL_ID,
   KIMI_CODING_MODEL_REF,
   MINIMAX_API_BASE_URL,

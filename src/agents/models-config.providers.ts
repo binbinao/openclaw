@@ -54,6 +54,17 @@ const MOONSHOT_DEFAULT_COST = {
   cacheWrite: 0,
 };
 
+const HUNYUAN_BASE_URL = "https://api.hunyuan.cloud.tencent.com/v1";
+const HUNYUAN_DEFAULT_MODEL_ID = "hunyuan-turbos-latest";
+const HUNYUAN_DEFAULT_CONTEXT_WINDOW = 128000;
+const HUNYUAN_DEFAULT_MAX_TOKENS = 8192;
+const HUNYUAN_DEFAULT_COST = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+};
+
 const QWEN_PORTAL_BASE_URL = "https://portal.qwen.ai/v1";
 const QWEN_PORTAL_OAUTH_PLACEHOLDER = "qwen-oauth";
 const QWEN_PORTAL_DEFAULT_CONTEXT_WINDOW = 128000;
@@ -323,6 +334,24 @@ function buildMoonshotProvider(): ProviderConfig {
   };
 }
 
+function buildHunyuanProvider(): ProviderConfig {
+  return {
+    baseUrl: HUNYUAN_BASE_URL,
+    api: "openai-completions",
+    models: [
+      {
+        id: HUNYUAN_DEFAULT_MODEL_ID,
+        name: "Hunyuan Turbos",
+        reasoning: false,
+        input: ["text"],
+        cost: HUNYUAN_DEFAULT_COST,
+        contextWindow: HUNYUAN_DEFAULT_CONTEXT_WINDOW,
+        maxTokens: HUNYUAN_DEFAULT_MAX_TOKENS,
+      },
+    ],
+  };
+}
+
 function buildQwenPortalProvider(): ProviderConfig {
   return {
     baseUrl: QWEN_PORTAL_BASE_URL,
@@ -422,6 +451,13 @@ export async function resolveImplicitProviders(params: {
     resolveApiKeyFromProfiles({ provider: "moonshot", store: authStore });
   if (moonshotKey) {
     providers.moonshot = { ...buildMoonshotProvider(), apiKey: moonshotKey };
+  }
+
+  const hunyuanKey =
+    resolveEnvApiKeyVarName("hunyuan") ??
+    resolveApiKeyFromProfiles({ provider: "hunyuan", store: authStore });
+  if (hunyuanKey) {
+    providers.hunyuan = { ...buildHunyuanProvider(), apiKey: hunyuanKey };
   }
 
   const syntheticKey =

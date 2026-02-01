@@ -15,6 +15,12 @@ export const MOONSHOT_DEFAULT_MAX_TOKENS = 8192;
 export const KIMI_CODING_MODEL_ID = "k2p5";
 export const KIMI_CODING_MODEL_REF = `kimi-coding/${KIMI_CODING_MODEL_ID}`;
 
+export const HUNYUAN_BASE_URL = "https://api.hunyuan.cloud.tencent.com/v1";
+export const HUNYUAN_DEFAULT_MODEL_ID = "hunyuan-turbos-latest";
+export const HUNYUAN_DEFAULT_MODEL_REF = `hunyuan/${HUNYUAN_DEFAULT_MODEL_ID}`;
+export const HUNYUAN_DEFAULT_CONTEXT_WINDOW = 128000;
+export const HUNYUAN_DEFAULT_MAX_TOKENS = 8192;
+
 // Pricing: MiniMax doesn't publish public rates. Override in models.json for accurate costs.
 export const MINIMAX_API_COST = {
   input: 15,
@@ -35,6 +41,12 @@ export const MINIMAX_LM_STUDIO_COST = {
   cacheWrite: 0,
 };
 export const MOONSHOT_DEFAULT_COST = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+};
+export const HUNYUAN_DEFAULT_COST = {
   input: 0,
   output: 0,
   cacheRead: 0,
@@ -89,5 +101,17 @@ export function buildMoonshotModelDefinition(): ModelDefinitionConfig {
     cost: MOONSHOT_DEFAULT_COST,
     contextWindow: MOONSHOT_DEFAULT_CONTEXT_WINDOW,
     maxTokens: MOONSHOT_DEFAULT_MAX_TOKENS,
+  };
+}
+
+export function buildHunyuanModelDefinition(): ModelDefinitionConfig {
+  return {
+    id: HUNYUAN_DEFAULT_MODEL_ID,
+    name: "Hunyuan Turbos",
+    reasoning: false,
+    input: ["text"],
+    cost: HUNYUAN_DEFAULT_COST,
+    contextWindow: HUNYUAN_DEFAULT_CONTEXT_WINDOW,
+    maxTokens: HUNYUAN_DEFAULT_MAX_TOKENS,
   };
 }

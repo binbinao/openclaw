@@ -21,7 +21,8 @@ export type AuthChoiceGroupId =
   | "minimax"
   | "synthetic"
   | "venice"
-  | "qwen";
+  | "qwen"
+  | "hunyuan";
 
 export type AuthChoiceGroup = {
   value: AuthChoiceGroupId;
@@ -120,6 +121,12 @@ const AUTH_CHOICE_GROUP_DEFS: {
     hint: "Privacy-focused (uncensored models)",
     choices: ["venice-api-key"],
   },
+  {
+    value: "hunyuan",
+    label: "Tencent Hunyuan",
+    hint: "OpenAI-compatible API key",
+    choices: ["hunyuan-api-key"],
+  },
 ];
 
 export function buildAuthChoiceOptions(params: {
@@ -181,6 +188,10 @@ export function buildAuthChoiceOptions(params: {
     hint: "OAuth new users enjoy a 3-day free trial of the MiniMax Coding Plan!",
   });
   options.push({ value: "qwen-portal", label: "Qwen OAuth" });
+  options.push({
+    value: "hunyuan-api-key",
+    label: "Tencent Hunyuan API key",
+  });
   options.push({
     value: "copilot-proxy",
     label: "Copilot Proxy (local)",

@@ -33,6 +33,7 @@ export type AuthChoice =
   | "github-copilot"
   | "copilot-proxy"
   | "qwen-portal"
+  | "hunyuan-api-key"
   | "skip";
 export type GatewayAuthChoice = "token" | "password";
 export type ResetScope = "config" | "config+creds+sessions" | "full";
@@ -71,6 +72,7 @@ export type OnboardOptions = {
   zaiApiKey?: string;
   xiaomiApiKey?: string;
   minimaxApiKey?: string;
+  hunyuanApiKey?: string;
   syntheticApiKey?: string;
   veniceApiKey?: string;
   opencodeZenApiKey?: string;
