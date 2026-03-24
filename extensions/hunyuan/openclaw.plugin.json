@@ -1,0 +1,17 @@
+{
+  "id": "hunyuan",
+  "name": "Hunyuan",
+  "version": "2026.3.24.0",
+  "description": "Hunyuan model provider",
+  "main": "dist/index.js",
+  "openclaw": {
+    "install.npmSpec": "@openclaw/hunyuan",
+    "channel": {
+      "id": "hunyuan"
+    },
+    "modelProvider": {
+      "baseUrl": "https://api.hunyuan.cloud.tencent.com",
+      "apiKeyEnvVar": "HUNYUAN_API_KEY"
+    }
+  }
+}
