@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const enqueueMock = vi.fn(async (_entry: unknown) => {});
 const flushKeyMock = vi.fn(async (_key: string) => {});
@@ -7,8 +7,10 @@ const resolveThreadTsMock = vi.fn(async ({ message }: { message: Record<string, 
 }));
 let createSlackMessageHandler: typeof import("./message-handler.js").createSlackMessageHandler;
 
-vi.mock("openclaw/plugin-sdk/channel-inbound", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/channel-inbound")>();
+vi.mock("openclaw/plugin-sdk/channel-inbound", async () => {
+  const actual = await vi.importActual<typeof import("openclaw/plugin-sdk/channel-inbound")>(
+    "openclaw/plugin-sdk/channel-inbound",
+  );
   return {
     ...actual,
     createChannelInboundDebouncer: () => ({
@@ -70,12 +72,14 @@ async function handleDirectMessage(
 }
 
 describe("createSlackMessageHandler", () => {
-  beforeEach(async () => {
-    vi.resetModules();
+  beforeAll(async () => {
+    ({ createSlackMessageHandler } = await import("./message-handler.js"));
+  });
+
+  beforeEach(() => {
     enqueueMock.mockClear();
     flushKeyMock.mockClear();
     resolveThreadTsMock.mockClear();
-    ({ createSlackMessageHandler } = await import("./message-handler.js"));
   });
 
   it("does not track invalid non-message events from the message stream", async () => {

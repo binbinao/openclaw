@@ -2,6 +2,7 @@ import { html, nothing } from "lit";
 import {
   buildAgentMainSessionKey,
   parseAgentSessionKey,
+  resolveAgentIdFromSessionKey,
 } from "../../../src/routing/session-key.js";
 import { t } from "../i18n/index.ts";
 import { getSafeLocalStorage } from "../local-storage.ts";
@@ -20,7 +21,14 @@ import type { AppViewState } from "./app-view-state.ts";
 import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controllers/agent-files.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
-import { loadAgents, loadToolsCatalog, saveAgentsConfig } from "./controllers/agents.ts";
+import {
+  buildToolsEffectiveRequestKey,
+  loadAgents,
+  loadToolsCatalog,
+  loadToolsEffective,
+  refreshVisibleToolsEffectiveForCurrentSession,
+  saveAgentsConfig,
+} from "./controllers/agents.ts";
 import { loadChannels } from "./controllers/channels.ts";
 import { loadChatHistory } from "./controllers/chat.ts";
 import {
@@ -62,6 +70,11 @@ import {
   rotateDeviceToken,
 } from "./controllers/devices.ts";
 import {
+  loadDreamingStatus,
+  updateDreamingMode,
+  type DreamingMode,
+} from "./controllers/dreaming.ts";
+import {
   loadExecApprovals,
   removeExecApprovalsFormValue,
   saveExecApprovals,
@@ -72,9 +85,14 @@ import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { deleteSessionsAndRefresh, loadSessions, patchSession } from "./controllers/sessions.ts";
 import {
+  closeClawHubDetail,
+  installFromClawHub,
   installSkill,
+  loadClawHubDetail,
   loadSkills,
   saveSkillApiKey,
+  searchClawHub,
+  setClawHubSearchQuery,
   updateSkillEdit,
   updateSkillEnabled,
 } from "./controllers/skills.ts";
@@ -130,6 +148,45 @@ const lazyLogs = createLazy(() => import("./views/logs.ts"));
 const lazyNodes = createLazy(() => import("./views/nodes.ts"));
 const lazySessions = createLazy(() => import("./views/sessions.ts"));
 const lazySkills = createLazy(() => import("./views/skills.ts"));
+const lazyDreams = createLazy(() => import("./views/dreams.ts"));
+const DREAMING_MODE_OPTIONS: Array<{ id: DreamingMode; label: string; detail: string }> = [
+  { id: "off", label: "Off", detail: "No automatic promotions" },
+  { id: "core", label: "Core", detail: "Nightly cadence, balanced thresholds" },
+  { id: "rem", label: "REM", detail: "Every 6 hours, more active consolidation" },
+  { id: "deep", label: "Deep", detail: "Every 12 hours, stricter promotion gates" },
+];
+
+function resolveDreamingMode(configValue: Record<string, unknown> | null): DreamingMode {
+  if (!configValue) {
+    return "off";
+  }
+  const plugins = configValue.plugins as Record<string, unknown> | undefined;
+  const entries = plugins?.entries as Record<string, unknown> | undefined;
+  const memoryCore = entries?.["memory-core"] as Record<string, unknown> | undefined;
+  const config = memoryCore?.config as Record<string, unknown> | undefined;
+  const dreaming = config?.dreaming as Record<string, unknown> | undefined;
+  const mode = typeof dreaming?.mode === "string" ? dreaming.mode.trim().toLowerCase() : "";
+  if (mode === "core" || mode === "rem" || mode === "deep" || mode === "off") {
+    return mode;
+  }
+  return "off";
+}
+
+function isDreamingEnabled(configValue: Record<string, unknown> | null): boolean {
+  return resolveDreamingMode(configValue) !== "off";
+}
+
+function formatDreamNextCycle(nextRunAtMs: number | undefined): string | null {
+  if (typeof nextRunAtMs !== "number" || !Number.isFinite(nextRunAtMs)) {
+    return null;
+  }
+  return new Date(nextRunAtMs).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+let clawhubSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
 function lazyRender<M>(getter: () => M | null, render: (mod: M) => unknown) {
   const mod = getter();
@@ -297,10 +354,7 @@ export function renderApp(state: AppViewState) {
   // Gate: require successful gateway connection before showing the dashboard.
   // The gateway URL confirmation overlay is always rendered so URL-param flows still work.
   if (!state.connected) {
-    return html`
-      ${renderLoginGate(state)}
-      ${renderGatewayUrlConfirmation(state)}
-    `;
+    return html` ${renderLoginGate(state)} ${renderGatewayUrlConfirmation(state)} `;
   }
 
   const presenceCount = state.presenceEntries.length;
@@ -317,12 +371,35 @@ export function renderApp(state: AppViewState) {
   const chatAvatarUrl = state.chatAvatarUrl ?? assistantAvatarUrl ?? null;
   const configValue =
     state.configForm ?? (state.configSnapshot?.config as Record<string, unknown> | null);
+  const configuredDreamingMode = resolveDreamingMode(configValue);
+  const dreamingMode = state.dreamingStatus?.mode ?? configuredDreamingMode;
+  const dreamingOn = state.dreamingStatus?.enabled ?? isDreamingEnabled(configValue);
+  const dreamingNextCycle = formatDreamNextCycle(state.dreamingStatus?.nextRunAtMs);
+  const dreamingLoading = state.dreamingStatusLoading || state.dreamingModeSaving;
+  const refreshDreamingStatus = () => loadDreamingStatus(state);
+  const applyDreamingMode = (mode: DreamingMode) => {
+    if (state.dreamingModeSaving || mode === dreamingMode) {
+      return;
+    }
+    void (async () => {
+      const updated = await updateDreamingMode(state, mode);
+      if (!updated) {
+        return;
+      }
+      await loadConfig(state);
+      await loadDreamingStatus(state);
+    })();
+  };
   const basePath = normalizeBasePath(state.basePath ?? "");
   const resolvedAgentId =
     state.agentsSelectedId ??
     state.agentsList?.defaultId ??
     state.agentsList?.agents?.[0]?.id ??
     null;
+  const activeSessionAgentId = resolveAgentIdFromSessionKey(state.sessionKey);
+  const toolsPanelUsesActiveSession = Boolean(
+    resolvedAgentId && activeSessionAgentId && resolvedAgentId === activeSessionAgentId,
+  );
   const getCurrentConfigValue = () =>
     state.configForm ?? (state.configSnapshot?.config as Record<string, unknown> | null);
   const findAgentIndex = (agentId: string) =>
@@ -405,7 +482,11 @@ export function renderApp(state: AppViewState) {
       },
     })}
     <div
-      class="shell ${isChat ? "shell--chat" : ""} ${chatFocus ? "shell--chat-focus" : ""} ${navCollapsed ? "shell--nav-collapsed" : ""} ${navDrawerOpen ? "shell--nav-drawer-open" : ""} ${state.onboarding ? "shell--onboarding" : ""}"
+      class="shell ${isChat ? "shell--chat" : ""} ${
+        chatFocus ? "shell--chat-focus" : ""
+      } ${navCollapsed ? "shell--nav-collapsed" : ""} ${
+        navDrawerOpen ? "shell--nav-drawer-open" : ""
+      } ${state.onboarding ? "shell--onboarding" : ""}"
     >
       <button
         type="button"
@@ -460,12 +541,16 @@ export function renderApp(state: AppViewState) {
                   navCollapsed
                     ? nothing
                     : html`
-                        <img class="sidebar-brand__logo" src="${agentLogoUrl(basePath)}" alt="OpenClaw" />
-                        <span class="sidebar-brand__copy">
-                          <span class="sidebar-brand__eyebrow">${t("nav.control")}</span>
-                          <span class="sidebar-brand__title">OpenClaw</span>
-                        </span>
-                      `
+                      <img
+                        class="sidebar-brand__logo"
+                        src="${agentLogoUrl(basePath)}"
+                        alt="OpenClaw"
+                      />
+                      <span class="sidebar-brand__copy">
+                        <span class="sidebar-brand__eyebrow">${t("nav.control")}</span>
+                        <span class="sidebar-brand__title">OpenClaw</span>
+                      </span>
+                    `
                 }
               </div>
               <button
@@ -479,7 +564,9 @@ export function renderApp(state: AppViewState) {
                 title="${navCollapsed ? t("nav.expand") : t("nav.collapse")}"
                 aria-label="${navCollapsed ? t("nav.expand") : t("nav.collapse")}"
               >
-                <span class="nav-collapse-toggle__icon" aria-hidden="true">${navCollapsed ? icons.panelLeftOpen : icons.panelLeftClose}</span>
+                <span class="nav-collapse-toggle__icon" aria-hidden="true"
+                  >${navCollapsed ? icons.panelLeftOpen : icons.panelLeftClose}</span
+                >
               </button>
             </div>
             <div class="sidebar-shell__body">
@@ -494,28 +581,30 @@ export function renderApp(state: AppViewState) {
                       ${
                         !navCollapsed
                           ? html`
-                              <button
-                                class="nav-section__label"
-                                @click=${() => {
-                                  const next = { ...state.settings.navGroupsCollapsed };
-                                  next[group.label] = !isGroupCollapsed;
-                                  state.applySettings({
-                                    ...state.settings,
-                                    navGroupsCollapsed: next,
-                                  });
-                                }}
-                                aria-expanded=${showItems}
+                            <button
+                              class="nav-section__label"
+                              @click=${() => {
+                                const next = { ...state.settings.navGroupsCollapsed };
+                                next[group.label] = !isGroupCollapsed;
+                                state.applySettings({
+                                  ...state.settings,
+                                  navGroupsCollapsed: next,
+                                });
+                              }}
+                              aria-expanded=${showItems}
+                            >
+                              <span class="nav-section__label-text"
+                                >${t(`nav.${group.label}`)}</span
                               >
-                                <span class="nav-section__label-text">${t(`nav.${group.label}`)}</span>
-                                <span class="nav-section__chevron">
-                                  ${icons.chevronDown}
-                                </span>
-                              </button>
-                            `
+                              <span class="nav-section__chevron"> ${icons.chevronDown} </span>
+                            </button>
+                          `
                           : nothing
                       }
                       <div class="nav-section__items">
-                        ${group.tabs.map((tab) => renderTab(state, tab, { collapsed: navCollapsed }))}
+                        ${group.tabs.map((tab) =>
+                          renderTab(state, tab, { collapsed: navCollapsed }),
+                        )}
                       </div>
                     </section>
                   `;
@@ -535,15 +624,13 @@ export function renderApp(state: AppViewState) {
                   ${
                     !navCollapsed
                       ? html`
-                          <span class="nav-item__text">${t("common.docs")}</span>
-                          <span class="nav-item__external-icon">${icons.externalLink}</span>
-                        `
+                        <span class="nav-item__text">${t("common.docs")}</span>
+                        <span class="nav-item__external-icon">${icons.externalLink}</span>
+                      `
                       : nothing
                   }
                 </a>
-                <div class="sidebar-mode-switch">
-                  ${renderTopbarThemeModeToggle(state)}
-                </div>
+                <div class="sidebar-mode-switch">${renderTopbarThemeModeToggle(state)}</div>
                 ${(() => {
                   const version = state.hello?.server?.version ?? "";
                   return version
@@ -552,13 +639,11 @@ export function renderApp(state: AppViewState) {
                           ${
                             !navCollapsed
                               ? html`
-                                  <span class="sidebar-version__label">${t("common.version")}</span>
-                                  <span class="sidebar-version__text">v${version}</span>
-                                  ${renderSidebarConnectionStatus(state)}
-                                `
-                              : html`
-                                  ${renderSidebarConnectionStatus(state)}
-                                `
+                                <span class="sidebar-version__label">${t("common.version")}</span>
+                                <span class="sidebar-version__text">v${version}</span>
+                                ${renderSidebarConnectionStatus(state)}
+                              `
+                              : html` ${renderSidebarConnectionStatus(state)} `
                           }
                         </div>
                       `
@@ -575,13 +660,15 @@ export function renderApp(state: AppViewState) {
           state.updateAvailable.latestVersion !== state.updateAvailable.currentVersion &&
           !isUpdateBannerDismissed(state.updateAvailable)
             ? html`<div class="update-banner callout danger" role="alert">
-              <strong>Update available:</strong> v${state.updateAvailable.latestVersion}
-              (running v${state.updateAvailable.currentVersion}).
+              <strong>Update available:</strong> v${state.updateAvailable.latestVersion} (running
+              v${state.updateAvailable.currentVersion}).
               <button
                 class="btn btn--sm update-banner__btn"
                 ?disabled=${state.updateRunning || !state.connected}
                 @click=${() => runUpdate(state)}
-              >${state.updateRunning ? "Updating…" : "Update now"}</button>
+              >
+                ${state.updateRunning ? "Updating…" : "Update now"}
+              </button>
               <button
                 class="update-banner__close"
                 type="button"
@@ -610,12 +697,58 @@ export function renderApp(state: AppViewState) {
                 ${isChat ? nothing : html`<div class="page-sub">${subtitleForTab(state.tab)}</div>`}
               </div>
               <div class="page-meta">
-                ${state.lastError ? html`<div class="pill danger">${state.lastError}</div>` : nothing}
+                ${
+                  state.tab === "dreams"
+                    ? html`
+                      <div class="dreaming-header-controls">
+                        <button
+                          class="btn btn--subtle btn--sm"
+                          ?disabled=${dreamingLoading}
+                          @click=${refreshDreamingStatus}
+                        >
+                          ${state.dreamingStatusLoading ? "Refreshing…" : "Refresh"}
+                        </button>
+                        <div
+                          class="dreaming-header-controls__modes"
+                          role="group"
+                          aria-label="Dreaming mode"
+                        >
+                          ${DREAMING_MODE_OPTIONS.map(
+                            (option) => html`
+                              <button
+                                class="dreaming-header-controls__mode ${
+                                  dreamingMode === option.id
+                                    ? "dreaming-header-controls__mode--active"
+                                    : ""
+                                }"
+                                ?disabled=${dreamingLoading}
+                                title=${`${option.label}: ${option.detail}`}
+                                aria-label=${`${option.label}: ${option.detail}`}
+                                @click=${() => applyDreamingMode(option.id)}
+                              >
+                                <span class="dreaming-header-controls__mode-label"
+                                  >${option.label}</span
+                                >
+                                <span class="dreaming-header-controls__mode-detail"
+                                  >${option.detail}</span
+                                >
+                              </button>
+                            `,
+                          )}
+                        </div>
+                      </div>
+                    `
+                    : nothing
+                }
+                ${
+                  state.lastError
+                    ? html`<div class="pill danger">${state.lastError}</div>`
+                    : nothing
+                }
                 ${isChat ? renderChatControls(state) : nothing}
               </div>
             </section>`
         }
-
         ${
           state.tab === "overview"
             ? renderOverview({
@@ -666,7 +799,6 @@ export function renderApp(state: AppViewState) {
               })
             : nothing
         }
-
         ${
           state.tab === "channels"
             ? lazyRender(lazyChannels, (m) =>
@@ -707,7 +839,6 @@ export function renderApp(state: AppViewState) {
               )
             : nothing
         }
-
         ${
           state.tab === "instances"
             ? lazyRender(lazyInstances, (m) =>
@@ -721,7 +852,6 @@ export function renderApp(state: AppViewState) {
               )
             : nothing
         }
-
         ${
           state.tab === "sessions"
             ? lazyRender(lazySessions, (m) =>
@@ -809,9 +939,7 @@ export function renderApp(state: AppViewState) {
               )
             : nothing
         }
-
         ${renderUsageTab(state)}
-
         ${
           state.tab === "cron"
             ? lazyRender(lazyCron, (m) =>
@@ -913,7 +1041,6 @@ export function renderApp(state: AppViewState) {
               )
             : nothing
         }
-
         ${
           state.tab === "agents"
             ? lazyRender(lazyAgents, (m) =>
@@ -966,6 +1093,13 @@ export function renderApp(state: AppViewState) {
                     error: state.toolsCatalogError,
                     result: state.toolsCatalogResult,
                   },
+                  toolsEffective: {
+                    loading: state.toolsEffectiveLoading,
+                    error: state.toolsEffectiveError,
+                    result: state.toolsEffectiveResult,
+                  },
+                  runtimeSessionKey: state.sessionKey,
+                  runtimeSessionMatchesSelectedAgent: toolsPanelUsesActiveSession,
                   modelCatalog: state.chatModelCatalog ?? [],
                   onRefresh: async () => {
                     await loadAgents(state);
@@ -986,6 +1120,12 @@ export function renderApp(state: AppViewState) {
                     }
                     if (state.agentsPanel === "tools" && refreshedAgentId) {
                       void loadToolsCatalog(state, refreshedAgentId);
+                      if (refreshedAgentId === resolveAgentIdFromSessionKey(state.sessionKey)) {
+                        void loadToolsEffective(state, {
+                          agentId: refreshedAgentId,
+                          sessionKey: state.sessionKey,
+                        });
+                      }
                     }
                     if (state.agentsPanel === "channels") {
                       void loadChannels(state, false);
@@ -1011,12 +1151,23 @@ export function renderApp(state: AppViewState) {
                     state.toolsCatalogResult = null;
                     state.toolsCatalogError = null;
                     state.toolsCatalogLoading = false;
+                    state.toolsEffectiveResult = null;
+                    state.toolsEffectiveResultKey = null;
+                    state.toolsEffectiveError = null;
+                    state.toolsEffectiveLoading = false;
+                    state.toolsEffectiveLoadingKey = null;
                     void loadAgentIdentity(state, agentId);
                     if (state.agentsPanel === "files") {
                       void loadAgentFiles(state, agentId);
                     }
                     if (state.agentsPanel === "tools") {
                       void loadToolsCatalog(state, agentId);
+                      if (agentId === resolveAgentIdFromSessionKey(state.sessionKey)) {
+                        void loadToolsEffective(state, {
+                          agentId,
+                          sessionKey: state.sessionKey,
+                        });
+                      }
                     }
                     if (state.agentsPanel === "skills") {
                       void loadAgentSkills(state, agentId);
@@ -1045,6 +1196,27 @@ export function renderApp(state: AppViewState) {
                         state.toolsCatalogError
                       ) {
                         void loadToolsCatalog(state, resolvedAgentId);
+                      }
+                      if (resolvedAgentId === resolveAgentIdFromSessionKey(state.sessionKey)) {
+                        const toolsRequestKey = buildToolsEffectiveRequestKey(state, {
+                          agentId: resolvedAgentId,
+                          sessionKey: state.sessionKey,
+                        });
+                        if (
+                          state.toolsEffectiveResultKey !== toolsRequestKey ||
+                          state.toolsEffectiveError
+                        ) {
+                          void loadToolsEffective(state, {
+                            agentId: resolvedAgentId,
+                            sessionKey: state.sessionKey,
+                          });
+                        }
+                      } else {
+                        state.toolsEffectiveResult = null;
+                        state.toolsEffectiveResultKey = null;
+                        state.toolsEffectiveError = null;
+                        state.toolsEffectiveLoading = false;
+                        state.toolsEffectiveLoadingKey = null;
                       }
                     }
                     if (panel === "channels") {
@@ -1185,22 +1357,23 @@ export function renderApp(state: AppViewState) {
                     const basePath = ["agents", "list", index, "model"];
                     if (!modelId) {
                       removeConfigFormValue(state, basePath);
-                      return;
-                    }
-                    const entry = Array.isArray(list)
-                      ? (list[index] as { model?: unknown })
-                      : undefined;
-                    const existing = entry?.model;
-                    if (existing && typeof existing === "object" && !Array.isArray(existing)) {
-                      const fallbacks = (existing as { fallbacks?: unknown }).fallbacks;
-                      const next = {
-                        primary: modelId,
-                        ...(Array.isArray(fallbacks) ? { fallbacks } : {}),
-                      };
-                      updateConfigFormValue(state, basePath, next);
                     } else {
-                      updateConfigFormValue(state, basePath, modelId);
+                      const entry = Array.isArray(list)
+                        ? (list[index] as { model?: unknown })
+                        : undefined;
+                      const existing = entry?.model;
+                      if (existing && typeof existing === "object" && !Array.isArray(existing)) {
+                        const fallbacks = (existing as { fallbacks?: unknown }).fallbacks;
+                        const next = {
+                          primary: modelId,
+                          ...(Array.isArray(fallbacks) ? { fallbacks } : {}),
+                        };
+                        updateConfigFormValue(state, basePath, next);
+                      } else {
+                        updateConfigFormValue(state, basePath, modelId);
+                      }
                     }
+                    void refreshVisibleToolsEffectiveForCurrentSession(state);
                   },
                   onModelFallbacksChange: (agentId, fallbacks) => {
                     const normalized = fallbacks.map((name) => name.trim()).filter(Boolean);
@@ -1269,7 +1442,6 @@ export function renderApp(state: AppViewState) {
               )
             : nothing
         }
-
         ${
           state.tab === "skills"
             ? lazyRender(lazySkills, (m) =>
@@ -1284,6 +1456,16 @@ export function renderApp(state: AppViewState) {
                   messages: state.skillMessages,
                   busyKey: state.skillsBusyKey,
                   detailKey: state.skillsDetailKey,
+                  clawhubQuery: state.clawhubSearchQuery,
+                  clawhubResults: state.clawhubSearchResults,
+                  clawhubSearchLoading: state.clawhubSearchLoading,
+                  clawhubSearchError: state.clawhubSearchError,
+                  clawhubDetail: state.clawhubDetail,
+                  clawhubDetailSlug: state.clawhubDetailSlug,
+                  clawhubDetailLoading: state.clawhubDetailLoading,
+                  clawhubDetailError: state.clawhubDetailError,
+                  clawhubInstallSlug: state.clawhubInstallSlug,
+                  clawhubInstallMessage: state.clawhubInstallMessage,
                   onFilterChange: (next) => (state.skillsFilter = next),
                   onStatusFilterChange: (next) => (state.skillsStatusFilter = next),
                   onRefresh: () => loadSkills(state, { clearMessages: true }),
@@ -1294,11 +1476,20 @@ export function renderApp(state: AppViewState) {
                     installSkill(state, skillKey, name, installId),
                   onDetailOpen: (key) => (state.skillsDetailKey = key),
                   onDetailClose: () => (state.skillsDetailKey = null),
+                  onClawHubQueryChange: (query) => {
+                    setClawHubSearchQuery(state, query);
+                    if (clawhubSearchTimer) {
+                      clearTimeout(clawhubSearchTimer);
+                    }
+                    clawhubSearchTimer = setTimeout(() => searchClawHub(state, query), 300);
+                  },
+                  onClawHubDetailOpen: (slug) => loadClawHubDetail(state, slug),
+                  onClawHubDetailClose: () => closeClawHubDetail(state),
+                  onClawHubInstall: (slug) => installFromClawHub(state, slug),
                 }),
               )
             : nothing
         }
-
         ${
           state.tab === "nodes"
             ? lazyRender(lazyNodes, (m) =>
@@ -1379,7 +1570,6 @@ export function renderApp(state: AppViewState) {
               )
             : nothing
         }
-
         ${
           state.tab === "chat"
             ? renderChat({
@@ -1500,7 +1690,6 @@ export function renderApp(state: AppViewState) {
               })
             : nothing
         }
-
         ${
           state.tab === "config"
             ? renderConfig({
@@ -1586,6 +1775,7 @@ export function renderApp(state: AppViewState) {
                 gatewayUrl: state.settings.gatewayUrl,
                 assistantName: state.assistantName,
                 configPath: state.configSnapshot?.path ?? null,
+                rawAvailable: typeof state.configSnapshot?.raw === "string",
                 excludeSections: [
                   ...COMMUNICATION_SECTION_KEYS,
                   ...AUTOMATION_SECTION_KEYS,
@@ -1598,7 +1788,6 @@ export function renderApp(state: AppViewState) {
               })
             : nothing
         }
-
         ${
           state.tab === "communications"
             ? renderConfig({
@@ -1659,13 +1848,13 @@ export function renderApp(state: AppViewState) {
                 gatewayUrl: state.settings.gatewayUrl,
                 assistantName: state.assistantName,
                 configPath: state.configSnapshot?.path ?? null,
+                rawAvailable: typeof state.configSnapshot?.raw === "string",
                 navRootLabel: "Communication",
                 includeSections: [...COMMUNICATION_SECTION_KEYS],
                 includeVirtualSections: false,
               })
             : nothing
         }
-
         ${
           state.tab === "appearance"
             ? renderConfig({
@@ -1726,13 +1915,13 @@ export function renderApp(state: AppViewState) {
                 gatewayUrl: state.settings.gatewayUrl,
                 assistantName: state.assistantName,
                 configPath: state.configSnapshot?.path ?? null,
+                rawAvailable: typeof state.configSnapshot?.raw === "string",
                 navRootLabel: "Appearance",
                 includeSections: [...APPEARANCE_SECTION_KEYS],
                 includeVirtualSections: true,
               })
             : nothing
         }
-
         ${
           state.tab === "automation"
             ? renderConfig({
@@ -1793,13 +1982,13 @@ export function renderApp(state: AppViewState) {
                 gatewayUrl: state.settings.gatewayUrl,
                 assistantName: state.assistantName,
                 configPath: state.configSnapshot?.path ?? null,
+                rawAvailable: typeof state.configSnapshot?.raw === "string",
                 navRootLabel: "Automation",
                 includeSections: [...AUTOMATION_SECTION_KEYS],
                 includeVirtualSections: false,
               })
             : nothing
         }
-
         ${
           state.tab === "infrastructure"
             ? renderConfig({
@@ -1860,13 +2049,13 @@ export function renderApp(state: AppViewState) {
                 gatewayUrl: state.settings.gatewayUrl,
                 assistantName: state.assistantName,
                 configPath: state.configSnapshot?.path ?? null,
+                rawAvailable: typeof state.configSnapshot?.raw === "string",
                 navRootLabel: "Infrastructure",
                 includeSections: [...INFRASTRUCTURE_SECTION_KEYS],
                 includeVirtualSections: false,
               })
             : nothing
         }
-
         ${
           state.tab === "aiAgents"
             ? renderConfig({
@@ -1927,13 +2116,13 @@ export function renderApp(state: AppViewState) {
                 gatewayUrl: state.settings.gatewayUrl,
                 assistantName: state.assistantName,
                 configPath: state.configSnapshot?.path ?? null,
+                rawAvailable: typeof state.configSnapshot?.raw === "string",
                 navRootLabel: "AI & Agents",
                 includeSections: [...AI_AGENTS_SECTION_KEYS],
                 includeVirtualSections: false,
               })
             : nothing
         }
-
         ${
           state.tab === "debug"
             ? lazyRender(lazyDebug, (m) =>
@@ -1957,7 +2146,6 @@ export function renderApp(state: AppViewState) {
               )
             : nothing
         }
-
         ${
           state.tab === "logs"
             ? lazyRender(lazyLogs, (m) =>
@@ -1982,10 +2170,29 @@ export function renderApp(state: AppViewState) {
               )
             : nothing
         }
+        ${
+          state.tab === "dreams"
+            ? lazyRender(lazyDreams, (m) =>
+                m.renderDreams({
+                  active: dreamingOn,
+                  shortTermCount: state.dreamingStatus?.shortTermCount ?? 0,
+                  longTermCount: state.dreamingStatus?.promotedTotal ?? 0,
+                  promotedCount: state.dreamingStatus?.promotedToday ?? 0,
+                  dreamingOf: null,
+                  nextCycle: dreamingNextCycle,
+                  mode: dreamingMode,
+                  statusLoading: state.dreamingStatusLoading,
+                  statusError: state.dreamingStatusError,
+                  modeSaving: state.dreamingModeSaving,
+                  managedCronPresent: state.dreamingStatus?.managedCronPresent ?? false,
+                  onRefresh: refreshDreamingStatus,
+                  onModeChange: applyDreamingMode,
+                }),
+              )
+            : nothing
+        }
       </main>
-      ${renderExecApprovalPrompt(state)}
-      ${renderGatewayUrlConfirmation(state)}
-      ${nothing}
+      ${renderExecApprovalPrompt(state)} ${renderGatewayUrlConfirmation(state)} ${nothing}
     </div>
   `;
 }

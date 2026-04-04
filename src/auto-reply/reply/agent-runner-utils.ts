@@ -48,13 +48,10 @@ export function buildThreadingToolContext(params: {
   // Fallback for unrecognized/plugin channels (e.g., BlueBubbles before plugin registry init)
   const threading = provider ? getChannelPlugin(provider)?.threading : undefined;
   if (!threading?.buildToolContext) {
-    const threadTs =
-      sessionCtx.MessageThreadId != null ? String(sessionCtx.MessageThreadId) : undefined;
     return {
       currentChannelId: originTo?.trim() || undefined,
       currentChannelProvider: provider ?? (rawProvider as ChannelId),
       currentMessageId,
-      currentThreadTs: threadTs || undefined,
       hasRepliedRef,
     };
   }
@@ -95,8 +92,19 @@ export const formatBunFetchSocketError = (message: string) => {
   ].join("\n");
 };
 
-export const resolveEnforceFinalTag = (run: FollowupRun["run"], provider: string) =>
-  Boolean(run.enforceFinalTag || isReasoningTagProvider(provider));
+export const resolveEnforceFinalTag = (
+  run: FollowupRun["run"],
+  provider: string,
+  model = run.model,
+) =>
+  Boolean(
+    run.enforceFinalTag ||
+    isReasoningTagProvider(provider, {
+      config: run.config,
+      workspaceDir: run.workspaceDir,
+      modelId: model,
+    }),
+  );
 
 export function resolveModelFallbackOptions(run: FollowupRun["run"]) {
   return {
@@ -129,7 +137,8 @@ export function buildEmbeddedRunBaseParams(params: {
     ownerNumbers: params.run.ownerNumbers,
     inputProvenance: params.run.inputProvenance,
     senderIsOwner: params.run.senderIsOwner,
-    enforceFinalTag: resolveEnforceFinalTag(params.run, params.provider),
+    enforceFinalTag: resolveEnforceFinalTag(params.run, params.provider, params.model),
+    silentExpected: params.run.silentExpected,
     provider: params.provider,
     model: params.model,
     ...params.authProfile,
