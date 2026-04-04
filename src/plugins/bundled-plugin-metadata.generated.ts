@@ -1266,6 +1266,50 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
     },
   },
   {
+    dirName: "hunyuan",
+    idHint: "hunyuan",
+    source: {
+      source: "./index.ts",
+      built: "index.js",
+    },
+    packageName: "@openclaw/hunyuan",
+    packageVersion: "2026.3.24.0",
+    packageDescription: "Hunyuan model provider for OpenClaw",
+    packageManifest: {
+      extensions: ["./index.ts"],
+    },
+    manifest: {
+      id: "hunyuan",
+      configSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {},
+      },
+      providers: ["hunyuan"],
+      providerAuthEnvVars: {
+        hunyuan: ["HUNYUAN_API_KEY"],
+      },
+      providerAuthChoices: [
+        {
+          provider: "hunyuan",
+          method: "api-key",
+          choiceId: "hunyuan-api-key",
+          choiceLabel: "Hunyuan API key",
+          groupId: "hunyuan",
+          groupLabel: "Hunyuan",
+          groupHint: "API key",
+          optionKey: "hunyuanApiKey",
+          cliFlag: "--hunyuan-api-key",
+          cliOption: "--hunyuan-api-key <key>",
+          cliDescription: "Hunyuan API key",
+        },
+      ],
+      name: "Hunyuan",
+      description: "Hunyuan model provider",
+      version: "2026.3.24.0",
+    },
+  },
+  {
     dirName: "imessage",
     idHint: "imessage",
     source: {

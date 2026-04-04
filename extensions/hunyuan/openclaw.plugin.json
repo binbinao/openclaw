@@ -3,15 +3,28 @@
   "name": "Hunyuan",
   "version": "2026.3.24.0",
   "description": "Hunyuan model provider",
-  "main": "dist/index.js",
-  "openclaw": {
-    "install.npmSpec": "@openclaw/hunyuan",
-    "channel": {
-      "id": "hunyuan"
-    },
-    "modelProvider": {
-      "baseUrl": "https://api.hunyuan.cloud.tencent.com",
-      "apiKeyEnvVar": "HUNYUAN_API_KEY"
+  "providers": ["hunyuan"],
+  "providerAuthEnvVars": {
+    "hunyuan": ["HUNYUAN_API_KEY"]
+  },
+  "providerAuthChoices": [
+    {
+      "provider": "hunyuan",
+      "method": "api-key",
+      "choiceId": "hunyuan-api-key",
+      "choiceLabel": "Hunyuan API key",
+      "groupId": "hunyuan",
+      "groupLabel": "Hunyuan",
+      "groupHint": "API key",
+      "optionKey": "hunyuanApiKey",
+      "cliFlag": "--hunyuan-api-key",
+      "cliOption": "--hunyuan-api-key <key>",
+      "cliDescription": "Hunyuan API key"
     }
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
   }
 }
