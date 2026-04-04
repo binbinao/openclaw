@@ -2,8 +2,8 @@ import {
   createDefaultModelPresetAppliers,
   type OpenClawConfig,
 } from "openclaw/plugin-sdk/provider-onboard";
-import { buildHunyuanProvider } from "./provider-catalog.js";
 import { HUNYUAN_BASE_URL } from "./models.js";
+import { buildHunyuanProvider } from "./provider-catalog.js";
 
 export const HUNYUAN_DEFAULT_MODEL_ID = "hunyuan-2.0-instruct-20251111";
 export const HUNYUAN_DEFAULT_MODEL_REF = `hunyuan/${HUNYUAN_DEFAULT_MODEL_ID}`;

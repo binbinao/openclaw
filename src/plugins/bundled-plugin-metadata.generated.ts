@@ -1273,7 +1273,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
       built: "index.js",
     },
     packageName: "@openclaw/hunyuan",
-    packageVersion: "2026.3.24.0",
+    packageVersion: "2026.4.4.0",
     packageDescription: "Hunyuan model provider for OpenClaw",
     packageManifest: {
       extensions: ["./index.ts"],
@@ -1306,7 +1306,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
       ],
       name: "Hunyuan",
       description: "Hunyuan model provider",
-      version: "2026.3.24.0",
+      version: "2026.4.4",
     },
   },
   {

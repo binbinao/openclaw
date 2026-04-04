@@ -1,7 +1,7 @@
 {
   "id": "hunyuan",
   "name": "Hunyuan",
-  "version": "2026.3.24.0",
+  "version": "2026.4.4",
   "description": "Hunyuan model provider",
   "providers": ["hunyuan"],
   "providerAuthEnvVars": {
