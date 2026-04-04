@@ -10,6 +10,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Providers/Hunyuan: add bundled Hunyuan provider plugin with Tencent Hunyuan API support, `hunyuan-2.0-instruct-20251111` and `hunyuan-turbo` models, and standard API key authentication via `HUNYUAN_API_KEY`.
 - Memory/dreaming (experimental): add weighted short-term recall promotion, managed dreaming modes (`off|core|rem|deep`), a `/dreaming` command, Dreams UI, multilingual conceptual tagging, and doctor/status repair support so durable memory promotion can run in the background with less manual setup. (#60569, #60697)
 - Control UI/skills: add ClawHub search, detail, and install flows directly in the Skills panel. (#60134) Thanks @samzong.
 - Providers/StepFun: add the bundled StepFun provider plugin with standard and Step Plan endpoints, China/global onboarding choices, `step-3.5-flash` on both catalogs, and `step-3.5-flash-2603` currently exposed on Step Plan. (#60032) Thanks @hengm3467.
